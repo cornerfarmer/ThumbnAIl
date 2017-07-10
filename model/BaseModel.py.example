@@ -1,0 +1,8 @@
+from peewee import *
+
+db = MySQLDatabase('database credentials')
+api_key = '<apikey>'
+
+class BaseModel(Model):
+    class Meta:
+        database = db
