@@ -6,8 +6,33 @@ import tensorflow as tf
 from thumbnails import ThumbnailDataset
 
 dataset = ThumbnailDataset()
-while True:
-    print(dataset.next_batch(50))
+
+image_queue = tf.train.string_input_producer(dataset.filenames, shuffle=False)
+
+image_reader = tf.WholeFileReader()
+_, image_record = image_reader.read(image_queue)
+
+image = tf.image.decode_jpeg(image_record)
+image_crop = tf.reshape(tf.image.crop_to_bounding_box(image, 11, 0, 90 - 11 * 2, 120), (68, 120, 3))
+
+label_queue = tf.train.input_producer(dataset.labels, shuffle=False)
+
+batch_size = 32
+min_after_dequeue = 10000
+capacity = min_after_dequeue + 3 * batch_size
+batch_image, batch_label = tf.train.shuffle_batch([image_crop, label_queue.dequeue()], batch_size, capacity, min_after_dequeue)
+
+sess = tf.Session()
+sess.run(tf.global_variables_initializer())
+
+coord = tf.train.Coordinator()
+threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+image = sess.run([batch_image, batch_label])
+
+print(image)
+
+exit()
 
 x = tf.placeholder(tf.float32, shape=(None, 2))
 y_ = tf.placeholder(tf.float32, shape=(None, 1))
