@@ -8,38 +8,56 @@ from thumbnails import ThumbnailDataset
 
 dataset = ThumbnailDataset()
 
-with tf.variable_scope("input_pipeline"):
-    image_queue = tf.train.string_input_producer(dataset.filenames, shuffle=False)
 
+def image_reader(queue):
     image_reader = tf.WholeFileReader()
     _, image_record = image_reader.read(image_queue)
 
     image = tf.image.decode_image(image_record)
     image_crop = tf.reshape(tf.image.crop_to_bounding_box(image, 11, 0, 90 - 11 * 2, 120), (68, 120, 3))
 
+    return tf.cast(image_crop, tf.float32) / 255
+
+with tf.variable_scope("input_pipeline"):
+    image_queue = tf.train.string_input_producer(dataset.filenames, shuffle=False)
+
+    image_crop = image_reader(image_queue)
+
     label_queue = tf.train.input_producer(dataset.labels, shuffle=False)
 
-    batch_size = 1
+    batch_size = 32
     min_after_dequeue = 10000
     capacity = min_after_dequeue + 3 * batch_size
     batch_image, batch_label = tf.train.shuffle_batch([image_crop, label_queue.dequeue()], batch_size, capacity, min_after_dequeue)
 
-    batch_image = tf.cast(batch_image, tf.float32) / 255
 
-with tf.variable_scope("network"):
-    y_ = tf.placeholder(tf.float32, shape=(None, 1))
+def network(input, reuse=False):
+    with tf.variable_scope("network"):
+        if reuse:
+            tf.get_variable_scope().reuse_variables()
 
-    conv1 = tf.layers.conv2d(batch_image, 32, [5, 5], padding='same', activation=tf.nn.relu)
-    pool1 = tf.layers.max_pooling2d(conv1, [2, 2], strides=2)
+        conv1 = tf.layers.conv2d(input, 32, [5, 5], padding='same', activation=tf.nn.relu)
+        pool1 = tf.layers.max_pooling2d(conv1, [2, 2], strides=2)
 
-    conv2 = tf.layers.conv2d(pool1, 64, [5, 5], padding='same', activation=tf.nn.relu)
-    pool2 = tf.layers.max_pooling2d(conv2, [2, 2], strides=2)
+        conv2 = tf.layers.conv2d(pool1, 64, [5, 5], padding='same', activation=tf.nn.relu)
+        pool2 = tf.layers.max_pooling2d(conv2, [2, 2], strides=2)
 
-    pool2_flat = tf.reshape(pool2, [-1, 120 / 4 * 68 / 4 * 64])
+        pool2_flat = tf.reshape(pool2, [-1, 120 / 4 * 68 / 4 * 64])
 
-    dense = tf.layers.dense(pool2_flat, 1024, tf.sigmoid)
-    y = tf.layers.dense(dense, 1)
-    y_sigm = tf.sigmoid(y)
+        dense = tf.layers.dense(pool2_flat, 1024, tf.sigmoid)
+        y = tf.layers.dense(dense, 1)
+        y_sigm = tf.sigmoid(y)
+
+        return y, y_sigm
+
+y, y_sigm = network(batch_image)
+
+loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=batch_label, logits=y))
+opt = tf.train.AdamOptimizer().minimize(loss)
+
+test_filename = tf.placeholder(tf.string)
+test_image = tf.expand_dims(image_reader(test_filename), 0)
+_, test_output = network(test_image, True)
 
 sess = tf.Session()
 sess.run(tf.global_variables_initializer())
@@ -50,16 +68,30 @@ threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 train_writer = tf.summary.FileWriter('tensorboard/' + time.strftime("%Y%m%d-%H%M%S"), sess.graph)
 
 tf.summary.image("original", batch_image)
-tf.summary.scalar("output", tf.reshape(y, []))
+tf.summary.scalar("loss", loss)
 merge_op = tf.summary.merge_all()
 
-for i in xrange(10):
+print("Max: " + str(dataset.max_views))
+
+for i in xrange(100):
     run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
     run_metadata = tf.RunMetadata()
-    output, summary = sess.run([y, merge_op], run_metadata=run_metadata, options=run_options)
+    _, summary = sess.run([opt, merge_op], run_metadata=run_metadata, options=run_options)
     train_writer.add_run_metadata(run_metadata, 'step%d' % i)
 
     train_writer.add_summary(summary, i)
+
+
+def test_video(video_id):
+    estimate = sess.run(test_output, feed_dict={test_filename: "/home/domin/Dokumente/ThumbnAIl/thumbs/" + video_id + ".jpg"})[0][0]
+    estimate *= dataset.max_views
+    real = dataset.get_view_count_for_video(video_id)
+    print("Video " + video_id + ":  est: " + str(estimate) + "  real: " + str(real) + "  diff: " + str(estimate - real))
+
+
+test_video("_1PMlT8vmiA")
+test_video("4gSOMba1UdM")
+test_video("EeZsEh1GB2Q")
 
 exit()
 
