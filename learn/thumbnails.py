@@ -13,6 +13,7 @@ class ThumbnailDataset:
         self.videos = Video.select()
         self.next_index = 0
         self._videos_to_training_data(self.videos)
+        self._build_train_and_test_dataset()
 
     def next_batch(self, batch_size):
         if self.next_index + batch_size < len(self.videos):
@@ -24,6 +25,14 @@ class ThumbnailDataset:
             batch += self.next_batch(batch_size - len(batch))
 
         return self._videos_to_training_data(batch)
+
+    def _build_train_and_test_dataset(self):
+        test_start_index = int(len(self.filenames) * 0.8)
+        self.train_filenames = self.filenames[:test_start_index]
+        self.test_filenames = self.filenames[test_start_index:]
+        self.train_labels = self.labels[:test_start_index]
+        self.test_labels = self.labels[test_start_index:]
+
 
     def _videos_to_training_data(self, videos):
         labels = np.zeros((sum(len(video_set) for video_set in videos), 1 if not self.split_in_classes else len(videos)), dtype=np.float32)
@@ -73,6 +82,8 @@ class NormalizedThumbnailDataset(ThumbnailDataset):
             self._videos_to_training_data(self.videos)
         else:
             self._videos_to_training_data([[item for sublist in self.videos for item in sublist]])
+
+        self._build_train_and_test_dataset()
 
     def _get_label(self, video):
         return log10(video.viewCount)

@@ -18,18 +18,25 @@ def image_reader(queue):
 
     return tf.cast(image_crop, tf.float32) / 255
 
-with tf.variable_scope("input_pipeline"):
-    image_queue = tf.train.string_input_producer(dataset.filenames, shuffle=False)
+
+def input_pipeline(filenames, labels):
+    image_queue = tf.train.string_input_producer(filenames, shuffle=False)
 
     image_crop = image_reader(image_queue)
 
-    label_queue = tf.train.input_producer(dataset.labels, shuffle=False)
+    label_queue = tf.train.input_producer(labels, shuffle=False)
 
     batch_size = 64
     min_after_dequeue = 10000
     capacity = min_after_dequeue + 3 * batch_size
-    batch_image, batch_label = tf.train.shuffle_batch([image_crop, label_queue.dequeue()], batch_size, capacity=capacity, min_after_dequeue=min_after_dequeue)
+    return tf.train.shuffle_batch([image_crop, label_queue.dequeue()], batch_size, capacity=capacity, min_after_dequeue=min_after_dequeue)
 
+
+with tf.variable_scope("input_train_pipeline"):
+    train_batch_image, train_batch_label = input_pipeline(dataset.train_filenames, dataset.train_labels)
+
+with tf.variable_scope("input_test_pipeline"):
+    test_batch_image, test_batch_label = input_pipeline(dataset.test_filenames, dataset.test_labels)
 
 def network(input, reuse=False):
     with tf.variable_scope("network"):
@@ -44,28 +51,36 @@ def network(input, reuse=False):
 
         pool2_flat = tf.reshape(pool2, [-1, 120 / 4 * 68 / 4 * 64])
 
-        dense = tf.layers.dense(pool2_flat, 1024, tf.sigmoid)
+        dense = tf.layers.dense(pool2_flat, 128, tf.sigmoid)
         y = tf.layers.dense(dense, len(dataset.labels[0]))
         if dataset.split_in_classes:
-            y_sigm = tf.nn.softmax(y)
+            y_act = tf.nn.softmax(y)
         else:
-            y_sigm = tf.sigmoid(y)
+            y_act = tf.sigmoid(y)
 
-        return y, y_sigm
+        return y, y_act
 
-y, y_sigm = network(batch_image)
+train_y, train_y_act = network(train_batch_image)
+test_y, test_y_act = network(test_batch_image, reuse=True)
 
-if dataset.split_in_classes:
-    loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(onehot_labels=batch_label, logits=y))
-else:
-    loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=batch_label, logits=y))
-opt = tf.train.AdamOptimizer().minimize(loss)
+with tf.variable_scope("loss"):
+    if dataset.split_in_classes:
+        train_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(onehot_labels=train_batch_label, logits=train_y))
+        test_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(onehot_labels=test_batch_label, logits=test_y))
+    else:
+        train_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=train_batch_label, logits=train_y))
+        test_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=test_batch_label, logits=test_y))
 
-test_filename = tf.placeholder(tf.string)
-test_image_queue = tf.FIFOQueue(capacity=1, dtypes=[tf.string], shapes=[()])
-enqueue_op = test_image_queue.enqueue(test_filename)
-test_image = tf.expand_dims(image_reader(test_image_queue), 0)
-_, test_output = network(test_image, True)
+with tf.variable_scope("optimizer"):
+    opt = tf.train.AdamOptimizer().minimize(train_loss)
+
+with tf.variable_scope("validation"):
+    validation_filename = tf.placeholder(tf.string)
+    validation_image_queue = tf.FIFOQueue(capacity=1, dtypes=[tf.string], shapes=[()])
+    enqueue_op = validation_image_queue.enqueue(validation_filename)
+    validation_image = tf.expand_dims(image_reader(validation_image_queue), 0)
+
+_, validation_output = network(validation_image, True)
 
 sess = tf.Session()
 sess.run(tf.global_variables_initializer())
@@ -75,8 +90,10 @@ threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
 train_writer = tf.summary.FileWriter('tensorboard/' + time.strftime("%Y%m%d-%H%M%S"), sess.graph)
 
-tf.summary.image("original", batch_image)
-tf.summary.scalar("loss", loss)
+tf.summary.image("original", train_batch_image)
+with tf.variable_scope("loss"):
+    tf.summary.scalar("train_loss", train_loss)
+    tf.summary.scalar("test_loss", test_loss)
 merge_op = tf.summary.merge_all()
 
 print("Max: " + str(dataset.max_views))
@@ -91,7 +108,7 @@ for i in xrange(500):
 
 
 def test_video(video_id):
-    estimate, _ = sess.run([test_output, enqueue_op], feed_dict={test_filename: "/home/domin/Dokumente/ThumbnAIl/thumbs/" + video_id + ".jpg"})
+    estimate, _ = sess.run([validation_output, enqueue_op], feed_dict={validation_filename: "/home/domin/Dokumente/ThumbnAIl/thumbs/" + video_id + ".jpg"})
     estimate = estimate[0]
     print(estimate)
     estimate = dataset.calculate_views_from_label(estimate if dataset.split_in_classes else estimate[0])
@@ -105,35 +122,3 @@ test_video("EeZsEh1GB2Q")
 
 for video_set in dataset.videos:
     test_video(video_set[0].identifier)
-
-exit()
-
-loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=y, labels=y_))
-
-opt = tf.train.RMSPropOptimizer(0.1).minimize(loss)
-
-sess = tf.Session()
-sess.run(tf.global_variables_initializer())
-
-for i in xrange(1000):
-    _, iter_loss = sess.run((opt, loss), {x: [[1, 0], [0, 0], [0, 1], [1, 1]], y_: [[1], [0], [1], [0]]})
-    if i % 100 is 0:
-        print(i, iter_loss)
-
-print(sess.run(y_sigm, {x: [[1, 0], [0, 0], [0, 1], [1, 1]]}))
-
-
-exit()
-
-
-
-
-from model.BaseModel import db, api_key
-from model.Video import Video
-
-for video in Video.select():
-    print(video.identifier)
-
-print("Finished!")
-
-db.close()
