@@ -1,6 +1,7 @@
 import sys
 
 sys.path.append("/kunden/homepages/42/d584324863/htdocs/youtubemap/crawler/modules/")
+sys.path.append("/kunden/homepages/42/d584324863/htdocs/thumbnAIls")
 
 from apiclient.discovery import build
 from model.BaseModel import db, api_key
@@ -14,7 +15,7 @@ try:
 
     service = build('youtube', 'v3', developerKey=api_key)
 
-    for video in Video.select():
+    for video in Video.select().where(Video.viewCount==0):
 
         request = service.videos().list(part='statistics', id=video.identifier)
         results = request.execute()

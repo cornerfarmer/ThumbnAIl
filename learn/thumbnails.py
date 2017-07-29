@@ -26,7 +26,7 @@ class ThumbnailDataset:
         return self._videos_to_training_data(batch)
 
     def _videos_to_training_data(self, videos):
-        labels = np.zeros((len(videos) if not self.split_in_classes else sum(len(video_set) for video_set in videos), 1 if not self.split_in_classes else len(videos)), dtype=np.float32)
+        labels = np.zeros((sum(len(video_set) for video_set in videos), 1 if not self.split_in_classes else len(videos)), dtype=np.float32)
         filenames = []
 
         video_index = 0
@@ -60,7 +60,7 @@ class NormalizedThumbnailDataset(ThumbnailDataset):
         max_views = Video.select(peewee.fn.Max(Video.viewCount)).scalar()
         self.videos = [[] for i in range(int(log10(max_views) + 1))]
 
-        for video in Video.select():
+        for video in Video.select().where(Video.viewCount > 0):
             self.videos[int(log10(video.viewCount)) if video.viewCount > 0 else 0].append(video)
 
         self.videos = [x for x in self.videos if not len(x) < min_per_set]
@@ -72,7 +72,7 @@ class NormalizedThumbnailDataset(ThumbnailDataset):
         if self.split_in_classes:
             self._videos_to_training_data(self.videos)
         else:
-            self._videos_to_training_data([item for sublist in self.videos for item in sublist])
+            self._videos_to_training_data([[item for sublist in self.videos for item in sublist]])
 
     def _get_label(self, video):
         return log10(video.viewCount)
