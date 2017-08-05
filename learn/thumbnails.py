@@ -64,7 +64,7 @@ class ThumbnailDataset:
 
 class NormalizedThumbnailDataset(ThumbnailDataset):
 
-    def __init__(self, split_in_classes=False, min_per_set=100):
+    def __init__(self, split_in_classes=False, min_per_set=400):
         self.split_in_classes = split_in_classes
         max_views = Video.select(peewee.fn.Max(Video.viewCount)).scalar()
         self.videos = [[] for i in range(int(log10(max_views) + 1))]

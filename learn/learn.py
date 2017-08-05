@@ -19,10 +19,21 @@ def image_reader(queue):
     return tf.cast(image_crop, tf.float32) / 255
 
 
-def input_pipeline(filenames, labels):
+def data_augmentation(image):
+    with tf.variable_scope("data_augmentation"):
+        image = tf.image.random_flip_left_right(image)
+        image = tf.contrib.image.rotate(image, tf.random_uniform([1], -0.2, 0.2))
+
+    return image
+
+
+def input_pipeline(filenames, labels, enable_augmentation=False):
     image_queue = tf.train.string_input_producer(filenames, shuffle=False)
 
     image_crop = image_reader(image_queue)
+
+    if enable_augmentation:
+        image_crop = data_augmentation(image_crop)
 
     label_queue = tf.train.input_producer(labels, shuffle=False)
 
@@ -33,26 +44,31 @@ def input_pipeline(filenames, labels):
 
 
 with tf.variable_scope("input_train_pipeline"):
-    train_batch_image, train_batch_label = input_pipeline(dataset.train_filenames, dataset.train_labels)
+    train_batch_image, train_batch_label = input_pipeline(dataset.train_filenames, dataset.train_labels, True)
 
 with tf.variable_scope("input_test_pipeline"):
     test_batch_image, test_batch_label = input_pipeline(dataset.test_filenames, dataset.test_labels)
 
-def network(input, reuse=False):
+def network(input, keep_prob, reuse=False):
     with tf.variable_scope("network"):
         if reuse:
             tf.get_variable_scope().reuse_variables()
 
         conv1 = tf.layers.conv2d(input, 32, [5, 5], padding='same', activation=tf.nn.relu)
         pool1 = tf.layers.max_pooling2d(conv1, [2, 2], strides=2)
+        pool1 = tf.layers.batch_normalization(pool1, axis=1, training=not reuse)
 
         conv2 = tf.layers.conv2d(pool1, 64, [5, 5], padding='same', activation=tf.nn.relu)
         pool2 = tf.layers.max_pooling2d(conv2, [2, 2], strides=2)
+        pool2 = tf.layers.batch_normalization(pool2, axis=1, training=not reuse)
 
         pool2_flat = tf.reshape(pool2, [-1, 120 / 4 * 68 / 4 * 64])
 
         dense = tf.layers.dense(pool2_flat, 128, tf.sigmoid)
-        y = tf.layers.dense(dense, len(dataset.labels[0]))
+        dense = tf.layers.batch_normalization(dense, training=not reuse)
+        dense_drop = tf.nn.dropout(dense, keep_prob)
+
+        y = tf.layers.dense(dense_drop, len(dataset.labels[0]))
         if dataset.split_in_classes:
             y_act = tf.nn.softmax(y)
         else:
@@ -60,8 +76,8 @@ def network(input, reuse=False):
 
         return y, y_act
 
-train_y, train_y_act = network(train_batch_image)
-test_y, test_y_act = network(test_batch_image, reuse=True)
+train_y, train_y_act = network(train_batch_image, 0.5)
+test_y, test_y_act = network(test_batch_image, 1, reuse=True)
 
 with tf.variable_scope("loss"):
     if dataset.split_in_classes:
@@ -72,7 +88,7 @@ with tf.variable_scope("loss"):
         test_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=test_batch_label, logits=test_y))
 
 with tf.variable_scope("optimizer"):
-    opt = tf.train.AdamOptimizer().minimize(train_loss)
+    opt = tf.train.AdamOptimizer(learning_rate=0.01).minimize(train_loss)
 
 with tf.variable_scope("validation"):
     validation_filename = tf.placeholder(tf.string)
@@ -80,7 +96,7 @@ with tf.variable_scope("validation"):
     enqueue_op = validation_image_queue.enqueue(validation_filename)
     validation_image = tf.expand_dims(image_reader(validation_image_queue), 0)
 
-_, validation_output = network(validation_image, True)
+_, validation_output = network(validation_image, 1, True)
 
 sess = tf.Session()
 sess.run(tf.global_variables_initializer())
@@ -90,7 +106,7 @@ threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
 train_writer = tf.summary.FileWriter('tensorboard/' + time.strftime("%Y%m%d-%H%M%S"), sess.graph)
 
-tf.summary.image("original", train_batch_image)
+#tf.summary.image("original", train_batch_image)
 with tf.variable_scope("loss"):
     tf.summary.scalar("train_loss", train_loss)
     tf.summary.scalar("test_loss", test_loss)
