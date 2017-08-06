@@ -56,16 +56,16 @@ def network(input, keep_prob, reuse=False):
 
         conv1 = tf.layers.conv2d(input, 32, [5, 5], padding='same', activation=tf.nn.relu)
         pool1 = tf.layers.max_pooling2d(conv1, [2, 2], strides=2)
-        pool1 = tf.layers.batch_normalization(pool1, axis=1, training=not reuse)
+        #pool1 = tf.layers.batch_normalization(pool1, axis=1, training=not reuse)
 
         conv2 = tf.layers.conv2d(pool1, 64, [5, 5], padding='same', activation=tf.nn.relu)
         pool2 = tf.layers.max_pooling2d(conv2, [2, 2], strides=2)
-        pool2 = tf.layers.batch_normalization(pool2, axis=1, training=not reuse)
+        #pool2 = tf.layers.batch_normalization(pool2, axis=1, training=not reuse)
 
         pool2_flat = tf.reshape(pool2, [-1, 120 / 4 * 68 / 4 * 64])
 
         dense = tf.layers.dense(pool2_flat, 128, tf.sigmoid)
-        dense = tf.layers.batch_normalization(dense, training=not reuse)
+        #dense = tf.layers.batch_normalization(dense, training=not reuse)
         dense_drop = tf.nn.dropout(dense, keep_prob)
 
         y = tf.layers.dense(dense_drop, len(dataset.labels[0]))
@@ -87,8 +87,14 @@ with tf.variable_scope("loss"):
         train_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=train_batch_label, logits=train_y))
         test_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=test_batch_label, logits=test_y))
 
+with tf.variable_scope("accuracy"):
+    train_correct_prediction = tf.equal(tf.argmax(train_batch_label, 1), tf.argmax(train_y, 1))
+    train_accuracy = tf.reduce_mean(tf.cast(train_correct_prediction, tf.float32))
+    test_correct_prediction = tf.equal(tf.argmax(test_batch_label, 1), tf.argmax(test_y, 1))
+    test_accuracy = tf.reduce_mean(tf.cast(test_correct_prediction, tf.float32))
+
 with tf.variable_scope("optimizer"):
-    opt = tf.train.AdamOptimizer(learning_rate=0.01).minimize(train_loss)
+    opt = tf.train.AdamOptimizer(learning_rate=0.001).minimize(train_loss)
 
 with tf.variable_scope("validation"):
     validation_filename = tf.placeholder(tf.string)
@@ -107,17 +113,21 @@ threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 train_writer = tf.summary.FileWriter('tensorboard/' + time.strftime("%Y%m%d-%H%M%S"), sess.graph)
 
 #tf.summary.image("original", train_batch_image)
-with tf.variable_scope("loss"):
+with tf.variable_scope("eval"):
     tf.summary.scalar("train_loss", train_loss)
     tf.summary.scalar("test_loss", test_loss)
+    tf.summary.scalar("train_acc", train_accuracy)
+    tf.summary.scalar("test_acc", test_accuracy)
 merge_op = tf.summary.merge_all()
 
-print("Max: " + str(dataset.max_views))
+print("Train: " + str(len(dataset.train_filenames)))
+print("Test: " + str(len(dataset.test_filenames)))
 
-for i in xrange(500):
+for i in xrange(1500):
     run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
     run_metadata = tf.RunMetadata()
     _, summary = sess.run([opt, merge_op], run_metadata=run_metadata, options=run_options)
+
     train_writer.add_run_metadata(run_metadata, 'step%d' % i)
 
     train_writer.add_summary(summary, i)

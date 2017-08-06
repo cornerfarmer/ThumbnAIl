@@ -26,7 +26,14 @@ class ThumbnailDataset:
 
         return self._videos_to_training_data(batch)
 
+    def _permute_dataset(self):
+        indx = np.arange(len(self.filenames))
+        np.random.shuffle(indx)
+        self.filenames = [self.filenames[s] for s in indx]
+        self.labels = self.labels[indx]
+
     def _build_train_and_test_dataset(self):
+        self._permute_dataset()
         test_start_index = int(len(self.filenames) * 0.8)
         self.train_filenames = self.filenames[:test_start_index]
         self.test_filenames = self.filenames[test_start_index:]
@@ -64,7 +71,7 @@ class ThumbnailDataset:
 
 class NormalizedThumbnailDataset(ThumbnailDataset):
 
-    def __init__(self, split_in_classes=False, min_per_set=400):
+    def __init__(self, split_in_classes=False, min_per_set=100):
         self.split_in_classes = split_in_classes
         max_views = Video.select(peewee.fn.Max(Video.viewCount)).scalar()
         self.videos = [[] for i in range(int(log10(max_views) + 1))]
