@@ -6,7 +6,7 @@ model.Config.db_is_local = True
 import tensorflow as tf
 from thumbnails import ThumbnailDataset, NormalizedThumbnailDataset
 
-dataset = NormalizedThumbnailDataset(split_in_classes=True)
+dataset = NormalizedThumbnailDataset(split_in_classes=True, max_per_set=None)
 
 
 def image_reader(queue):
@@ -21,8 +21,16 @@ def image_reader(queue):
 
 def data_augmentation(image):
     with tf.variable_scope("data_augmentation"):
+        width = 120
+        height = 68
         image = tf.image.random_flip_left_right(image)
-        image = tf.contrib.image.rotate(image, tf.random_uniform([1], -0.2, 0.2))
+
+        dx = tf.random_uniform([], -20, 20, dtype=tf.int32)
+        dy = tf.random_uniform([], -20, 20, dtype=tf.int32)
+        image = tf.image.crop_to_bounding_box(image, tf.maximum(0, -dy), tf.maximum(0, -dx), height - tf.abs(dy), width - tf.abs(dx))
+        image = tf.image.pad_to_bounding_box(image, tf.maximum(0, dy), tf.maximum(0, dx), height, width)
+
+        image = tf.contrib.image.rotate(image, tf.random_uniform([1], -0.5, 0.5))
 
     return image
 
@@ -54,18 +62,22 @@ def network(input, keep_prob, reuse=False):
         if reuse:
             tf.get_variable_scope().reuse_variables()
 
-        conv1 = tf.layers.conv2d(input, 32, [5, 5], padding='same', activation=tf.nn.relu)
+        conv1 = tf.layers.conv2d(input, 32, [3, 3], padding='same', activation=tf.nn.relu)
         pool1 = tf.layers.max_pooling2d(conv1, [2, 2], strides=2)
-        #pool1 = tf.layers.batch_normalization(pool1, axis=1, training=not reuse)
+       # pool1 = tf.layers.batch_normalization(pool1, axis=1, training=not reuse)
 
-        conv2 = tf.layers.conv2d(pool1, 64, [5, 5], padding='same', activation=tf.nn.relu)
+        conv2 = tf.layers.conv2d(pool1, 64, [3, 3], padding='same', activation=tf.nn.relu)
         pool2 = tf.layers.max_pooling2d(conv2, [2, 2], strides=2)
-        #pool2 = tf.layers.batch_normalization(pool2, axis=1, training=not reuse)
+       # pool2 = tf.layers.batch_normalization(pool2, axis=1, training=not reuse)
 
-        pool2_flat = tf.reshape(pool2, [-1, 120 / 4 * 68 / 4 * 64])
+        conv3 = tf.layers.conv2d(pool2, 128, [3, 3], padding='same', activation=tf.nn.relu)
+        pool3 = tf.layers.max_pooling2d(conv3, [2, 2], strides=2)
+       # pool3 = tf.layers.batch_normalization(pool3, axis=1, training=not reuse)
 
-        dense = tf.layers.dense(pool2_flat, 128, tf.sigmoid)
-        #dense = tf.layers.batch_normalization(dense, training=not reuse)
+        flat = tf.reshape(pool3, [-1, 120 / 8 * int(68 / 8) * 128])
+
+        dense = tf.layers.dense(flat, 200, tf.nn.relu)
+       # dense = tf.layers.batch_normalization(dense, training=not reuse)
         dense_drop = tf.nn.dropout(dense, keep_prob)
 
         y = tf.layers.dense(dense_drop, len(dataset.labels[0]))
@@ -112,7 +124,7 @@ threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
 train_writer = tf.summary.FileWriter('tensorboard/' + time.strftime("%Y%m%d-%H%M%S"), sess.graph)
 
-#tf.summary.image("original", train_batch_image)
+tf.summary.image("original", train_batch_image)
 with tf.variable_scope("eval"):
     tf.summary.scalar("train_loss", train_loss)
     tf.summary.scalar("test_loss", test_loss)

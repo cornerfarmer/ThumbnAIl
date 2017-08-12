@@ -71,7 +71,7 @@ class ThumbnailDataset:
 
 class NormalizedThumbnailDataset(ThumbnailDataset):
 
-    def __init__(self, split_in_classes=False, min_per_set=100):
+    def __init__(self, split_in_classes=False, min_per_set=400, max_per_set=None):
         self.split_in_classes = split_in_classes
         max_views = Video.select(peewee.fn.Max(Video.viewCount)).scalar()
         self.videos = [[] for i in range(int(log10(max_views) + 1))]
@@ -81,6 +81,8 @@ class NormalizedThumbnailDataset(ThumbnailDataset):
 
         self.videos = [x for x in self.videos if not len(x) < min_per_set]
         smallest_set = min([len(x) for x in self.videos])
+        if not max_per_set is None:
+            smallest_set = min(smallest_set, max_per_set)
 
         self.videos = [random.sample(x, smallest_set) for x in self.videos]
 
