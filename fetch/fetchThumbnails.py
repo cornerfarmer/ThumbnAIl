@@ -7,7 +7,7 @@ from model.BaseModel import db
 from model.Video import Video
 from urllib.request import urlretrieve
 from urllib.error import HTTPError
-
+import os.path
 try:
 
     db.connect()
@@ -15,13 +15,15 @@ try:
 
     for video in Video.select():
 
-        url = "https://i.ytimg.com/vi/" + video.identifier + "/default.jpg"
+        if not os.path.isfile("../thumbs/" + video.identifier + ".jpg"):
 
-        try:
-            urlretrieve(url, "../thumbs/" + video.identifier + ".jpg")
-            print("Added thumbnail for " + video.identifier)
-        except HTTPError:
-            print("Could not fetch thumbnail for " + video.identifier)
+            url = "https://i.ytimg.com/vi/" + video.identifier + "/default.jpg"
+
+            try:
+                urlretrieve(url, "../thumbs/" + video.identifier + ".jpg")
+                print("Added thumbnail for " + video.identifier)
+            except HTTPError:
+                print("Could not fetch thumbnail for " + video.identifier)
 
 except:
     db.close()

@@ -6,8 +6,28 @@ model.Config.db_is_local = True
 import tensorflow as tf
 from thumbnails import ThumbnailDataset, NormalizedThumbnailDataset
 
-dataset = NormalizedThumbnailDataset(split_in_classes=True, max_per_set=None)
+dataset = NormalizedThumbnailDataset(split_in_classes=False, max_per_set=None)
 
+def copy_files():
+    from shutil import copy2
+    import os
+
+    basedir = "/home/domin/Dokumente/ThumbnAIl/thumbssplit/"
+
+    for i in xrange(len(dataset.train_filenames)):
+        dir = basedir + str(dataset.calculate_views_from_label(dataset.train_labels[i])) + "/"
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+
+        copy2(dataset.train_filenames[i], dir + dataset.train_filenames[i].rsplit('/', 1)[-1])
+
+    for i in xrange(len(dataset.test_filenames)):
+        dir = basedir + str(dataset.calculate_views_from_label(dataset.test_labels[i])) + "/"
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+
+        copy2(dataset.test_filenames[i], dir + dataset.test_filenames[i].rsplit('/', 1)[-1])
+    exit()
 
 def image_reader(queue):
     image_reader = tf.WholeFileReader()
@@ -84,7 +104,7 @@ def network(input, keep_prob, reuse=False):
         if dataset.split_in_classes:
             y_act = tf.nn.softmax(y)
         else:
-            y_act = tf.sigmoid(y)
+            y_act = y
 
         return y, y_act
 
@@ -96,14 +116,16 @@ with tf.variable_scope("loss"):
         train_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(onehot_labels=train_batch_label, logits=train_y))
         test_loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(onehot_labels=test_batch_label, logits=test_y))
     else:
-        train_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=train_batch_label, logits=train_y))
-        test_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=test_batch_label, logits=test_y))
+        train_loss = tf.reduce_mean(tf.squared_difference(train_batch_label, train_y))
+        test_loss = tf.reduce_mean(tf.squared_difference(test_batch_label, test_y))
 
 with tf.variable_scope("accuracy"):
-    train_correct_prediction = tf.equal(tf.argmax(train_batch_label, 1), tf.argmax(train_y, 1))
-    train_accuracy = tf.reduce_mean(tf.cast(train_correct_prediction, tf.float32))
-    test_correct_prediction = tf.equal(tf.argmax(test_batch_label, 1), tf.argmax(test_y, 1))
-    test_accuracy = tf.reduce_mean(tf.cast(test_correct_prediction, tf.float32))
+    if dataset.split_in_classes:
+        train_accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(train_batch_label, 1), tf.argmax(train_y, 1)), tf.float32))
+        test_accuracy = tf.reduce_mean(tf.cast(tf.equal(tf.argmax(test_batch_label, 1), tf.argmax(test_y, 1)), tf.float32))
+    else:
+        train_accuracy = tf.reduce_mean(tf.reduce_sum(tf.abs(train_batch_label - train_y), reduction_indices=[1]))
+        test_accuracy = tf.reduce_mean(tf.reduce_sum(tf.abs(test_batch_label - test_y), reduction_indices=[1]))
 
 with tf.variable_scope("optimizer"):
     opt = tf.train.AdamOptimizer(learning_rate=0.001).minimize(train_loss)
@@ -135,7 +157,7 @@ merge_op = tf.summary.merge_all()
 print("Train: " + str(len(dataset.train_filenames)))
 print("Test: " + str(len(dataset.test_filenames)))
 
-for i in xrange(1500):
+for i in xrange(1000):
     run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
     run_metadata = tf.RunMetadata()
     _, summary = sess.run([opt, merge_op], run_metadata=run_metadata, options=run_options)

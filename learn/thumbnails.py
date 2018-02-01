@@ -56,7 +56,7 @@ class ThumbnailDataset:
                 video_index += 1
 
         max_views = labels.max()
-        labels /= labels.max()
+        labels = (labels - labels.min()) / (labels.max() - labels.min())
         self.filenames, self.labels, self.max_views = filenames, labels, max_views
 
     def get_view_count_for_video(self, video_id):
@@ -101,7 +101,10 @@ class NormalizedThumbnailDataset(ThumbnailDataset):
         if self.split_in_classes:
             return pow(10, int(log10(self.videos[np.argmax(label)][0].viewCount)))
         else:
-            return pow(10, self.max_views * label)
+            return pow(10, self.max_views * label * self.labels.max())
 
 
+class RelativeThumbnailDataset(ThumbnailDataset):
 
+    def calculate_views_from_label(self, label):
+        pass
